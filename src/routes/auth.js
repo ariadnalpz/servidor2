@@ -8,10 +8,47 @@ require('dotenv').config();
 
 const router = express.Router();
 
-// API getInfo (GET) - Sin middleware
+// Middleware para registrar logs detallados (Servidor 2)
+const logMiddleware = async (req, res, next) => {
+  const startTime = Date.now();
+  const originalSend = res.send;
+  
+  res.send = function (body) {
+    const responseTime = Date.now() - startTime;
+    const logLevel = res.statusCode >= 400 ? 'error' : 'info';
+    
+    const logDetails = {
+      method: req.method,
+      url: req.url,
+      status: res.statusCode,
+      responseTime,
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      requestBody: req.body,
+      responseBody: typeof body === 'string' ? body : JSON.stringify(body)
+    };
+
+    // Modificamos saveLog para que use 'Servidor 2'
+    saveLog(
+      logLevel,
+      `${req.method} ${req.url} completed`,
+      { ...logDetails, server: 'Servidor 2' } // Sobreescribimos el server
+    ).catch(error => {
+      console.error('Error en middleware al guardar log en Servidor 2:', error);
+    });
+
+    return originalSend.apply(res, arguments);
+  };
+  
+  next();
+};
+
+// Aplicar middleware a todas las rutas
+router.use(logMiddleware);
+
+// API getInfo (GET) - Sin limiter
 router.get('/getInfo', async (req, res) => {
   try {
-    await saveLog('info', 'Solicitud a getInfo', { nodeVersion: process.version });
     res.json({
       nodeVersion: process.version,
       student: {
@@ -20,25 +57,22 @@ router.get('/getInfo', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error en getInfo:', error);
-    await saveLog('error', 'Error en getInfo', { error: error.message });
+    console.error('Error en getInfo (Servidor 2):', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
-// API Register (POST) - Sin middleware
+// API Register (POST) - Sin limiter
 router.post('/register', async (req, res) => {
   const { email, username, password, grado, grupo } = req.body;
 
   if (!email || !username || !password || !grado || !grupo || !/\S+@\S+\.\S+/.test(email)) {
-    await saveLog('error', 'Registro fallido', { reason: 'Datos inválidos' });
     return res.status(400).json({ error: 'Datos inválidos' });
   }
 
   try {
     const userSnapshot = await db.collection('users').where('email', '==', email).get();
     if (!userSnapshot.empty) {
-      await saveLog('error', 'Registro fallido', { reason: 'Usuario ya existe' });
       return res.status(400).json({ error: 'El usuario ya existe' });
     }
 
@@ -57,54 +91,47 @@ router.post('/register', async (req, res) => {
       otpSecret: secret.base32,
     });
 
-    await saveLog('info', 'Usuario registrado', { email, username });
     res.status(201).json({
       message: 'Usuario registrado',
       secret: secret.base32,
       otpauthUrl: secret.otpauth_url,
     });
   } catch (error) {
-    console.error('Error en register:', error);
-    await saveLog('error', 'Error al registrar usuario', { error: error.message });
+    console.error('Error en register (Servidor 2):', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
-// API Login (POST) - Sin middleware
+// API Login (POST) - Sin limiter
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
   try {
     const userSnapshot = await db.collection('users').where('email', '==', email).get();
     if (userSnapshot.empty) {
-      await saveLog('error', 'Login fallido', { reason: 'Usuario no encontrado' });
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
     const user = userSnapshot.docs[0].data();
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
-      await saveLog('error', 'Login fallido', { reason: 'Contraseña incorrecta' });
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
-    await saveLog('info', 'Credenciales verificadas, esperando OTP', { email });
     res.json({ message: 'Ingresa el código OTP de Google Authenticator' });
   } catch (error) {
-    console.error('Error en login:', error);
-    await saveLog('error', 'Error al procesar login', { error: error.message });
+    console.error('Error en login (Servidor 2):', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
-// Verificar OTP y generar JWT - Sin middleware
+// Verificar OTP y generar JWT - Sin limiter
 router.post('/verify-otp', async (req, res) => {
   const { email, otp } = req.body;
 
   try {
     const userSnapshot = await db.collection('users').where('email', '==', email).get();
     if (userSnapshot.empty) {
-      await saveLog('error', 'Verificación OTP fallida', { reason: 'Usuario no encontrado' });
       return res.status(401).json({ error: 'Usuario no encontrado' });
     }
 
@@ -119,39 +146,46 @@ router.post('/verify-otp', async (req, res) => {
     });
 
     if (!verified) {
-      await saveLog('error', 'Verificación OTP fallida', { email });
       return res.status(401).json({ error: 'Código OTP inválido' });
     }
 
     const token = jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    await saveLog('info', 'Login exitoso', { email });
     res.json({ token });
   } catch (error) {
-    console.error('Error en verify-otp:', error);
-    await saveLog('error', 'Error al verificar OTP', { error: error.message });
+    console.error('Error en verify-otp (Servidor 2):', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
-// Nueva ruta para obtener logs (GET) - Sin middleware
+// Nueva ruta para obtener logs (GET) - Sin limiter
 router.get('/logs', async (req, res) => {
   try {
-    const logsSnapshot = await db.collection('logs').get();
+    const logsSnapshot = await db.collection('logs')
+      .orderBy('timestamp', 'desc')
+      .limit(100)
+      .get();
+    
+    const logs = logsSnapshot.docs.map(doc => doc.data());
+    
+    const summary = {
+      server1: { info: 0, error: 0 },
+      server2: { info: 0, error: 0 }
+    };
 
-    const server1Logs = { info: 0, error: 0 };
-    const server2Logs = { info: 0, error: 0 };
-
-    logsSnapshot.forEach(doc => {
-      const { server, level } = doc.data();
-      if (server === 'Servidor 1') server1Logs[level]++;
-      else if (server === 'Servidor 2') server2Logs[level]++;
+    logs.forEach(log => {
+      if (log.server === 'Servidor 1') {
+        summary.server1[log.level]++;
+      } else if (log.server === 'Servidor 2') {
+        summary.server2[log.level]++;
+      }
     });
 
-    await saveLog('info', 'Logs consultados', { server: 'Servidor 2' });
-    res.json({ server1: server1Logs, server2: server2Logs });
+    res.json({ 
+      summary,
+      recentLogs: logs
+    });
   } catch (error) {
-    console.error('Error al obtener logs:', error);
-    await saveLog('error', 'Error al obtener logs', { error: error.message });
+    console.error('Error al obtener logs (Servidor 2):', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
