@@ -1,18 +1,36 @@
 const db = require('../config/firebase');
 
-const saveLog = async (level, message, details) => {
+const saveLog = async (level, message, details = {}, req = null) => {
   try {
-    await db.collection('logs').add({
-      level, // Ejemplo: 'info', 'error'
+    const logData = {
+      level,
       message,
-      details,
       timestamp: new Date().toISOString(),
-      server: 'Servidor 2',
+      server: 'Servidor 2', // Cambiado a Servidor 2
+      details: { ...details },
+    };
+
+    if (req) {
+      logData.method = req.method;
+      logData.url = req.url;
+      logData.ip = req.ip || req.connection.remoteAddress;
+      logData.userAgent = req.get('User-Agent') || 'Desconocido';
+      logData.body = req.body ? { ...req.body } : {};
+    }
+
+    await db.collection('logs').add(logData);
+
+    console.log(`[${logData.timestamp}] ${level.toUpperCase()} - ${message}`, {
+      server: logData.server,
+      method: logData.method,
+      url: logData.url,
+      details: logData.details,
     });
-    console.log('Log guardado exitosamente:', { level, message });
+
+    return logData;
   } catch (error) {
-    console.error('Error al guardar log en Servidor 2:', error);
-    throw error; // Opcional: lanza el error para manejarlo en la ruta
+    console.error(`[${new Date().toISOString()}] ERROR - Error al guardar log:`, error);
+    throw error;
   }
 };
 
