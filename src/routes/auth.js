@@ -133,4 +133,27 @@ router.post('/verify-otp', async (req, res) => {
   }
 });
 
+// Nueva ruta para obtener logs (GET) - Sin middleware
+router.get('/logs', async (req, res) => {
+  try {
+    const logsSnapshot = await db.collection('logs').get();
+
+    const server1Logs = { info: 0, error: 0 };
+    const server2Logs = { info: 0, error: 0 };
+
+    logsSnapshot.forEach(doc => {
+      const { server, level } = doc.data();
+      if (server === 'Servidor 1') server1Logs[level]++;
+      else if (server === 'Servidor 2') server2Logs[level]++;
+    });
+
+    await saveLog('info', 'Logs consultados', { server: 'Servidor 2' });
+    res.json({ server1: server1Logs, server2: server2Logs });
+  } catch (error) {
+    console.error('Error al obtener logs:', error);
+    await saveLog('error', 'Error al obtener logs', { error: error.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
 module.exports = router;
