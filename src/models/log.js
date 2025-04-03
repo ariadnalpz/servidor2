@@ -6,7 +6,7 @@ const saveLog = async (level, message, details = {}, req = null) => {
       level,
       message,
       timestamp: new Date().toISOString(),
-      server: 'Servidor 2', // Cambiado a Servidor 2
+      server: 'Servidor 2',
       details: { ...details },
     };
 

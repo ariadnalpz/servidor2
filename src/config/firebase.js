@@ -13,7 +13,6 @@ if (!admin.apps.length) {
 // Inicializa Firestore
 const db = admin.firestore();
 
-// Opcional: Configura ajustes de Firestore si es necesario
 db.settings({ ignoreUndefinedProperties: true });
 
 module.exports = db;
