@@ -4,12 +4,13 @@ const bcrypt = require('bcryptjs');
 const speakeasy = require('speakeasy');
 const { saveLog } = require('../models/log');
 const db = require('../config/firebase');
+const verifyToken = require('../middleware/auth'); // Importamos el middleware
 require('dotenv').config();
 
 const router = express.Router();
 
-// API getInfo (GET) - Sin middleware
-router.get('/getInfo', async (req, res) => {
+// API getInfo (GET) - Protegida con verifyToken
+router.get('/getInfo', verifyToken, async (req, res) => {
   try {
     await saveLog('info', 'Solicitud a getInfo', { nodeVersion: process.version });
     res.json({
@@ -133,7 +134,7 @@ router.post('/verify-otp', async (req, res) => {
   }
 });
 
-// Nueva ruta para iniciar la recuperación de contraseña (POST) - Sin middleware
+// Ruta para iniciar la recuperación de contraseña (POST) - Sin middleware
 router.post('/recover-password', async (req, res) => {
   const { email } = req.body;
 
@@ -158,7 +159,7 @@ router.post('/recover-password', async (req, res) => {
   }
 });
 
-// Nueva ruta para restablecer la contraseña (POST) - Sin middleware
+// Ruta para restablecer la contraseña (POST) - Sin middleware
 router.post('/reset-password', async (req, res) => {
   const { email, otp, newPassword } = req.body;
 
@@ -204,8 +205,8 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
-// Ruta para obtener logs (GET) - Sin middleware
-router.get('/logs', async (req, res) => {
+// Ruta para obtener logs (GET) - Protegida con verifyToken
+router.get('/logs', verifyToken, async (req, res) => {
   try {
     const logsSnapshot = await db.collection('logs').get();
 
