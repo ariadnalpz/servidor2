@@ -3,14 +3,15 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const speakeasy = require('speakeasy');
 const db = require('../config/firebase');
+const verifyToken = require('../middleware/auth'); // Importamos el middleware
 require('dotenv').config();
 
 const router = express.Router();
 
-// API getInfo (GET) - Sin rateLimit
-router.get('/getInfo', async (req, res) => {
+// API getInfo (GET) - Protegida con verifyToken
+router.get('/getInfo', verifyToken, async (req, res) => {
   try {
-    const email = req.query.email; // Obtener el email desde la query (por ejemplo: /getInfo?email=server2@gmail.com)
+    const email = req.userEmail; // Obtenemos el email del token
 
     let userData = null;
     if (email) {
@@ -31,7 +32,7 @@ router.get('/getInfo', async (req, res) => {
         name: 'Ariadna Vanessa López Gómez',
         group: 'IDGS11',
       },
-      user: userData, // Puede ser null si no se proporciona email o no se encuentra el usuario
+      user: userData,
     });
   } catch (error) {
     console.error('Error en getInfo:', error);
@@ -196,8 +197,8 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
-// Ruta para obtener logs (GET)
-router.get('/logs', async (req, res) => {
+// Ruta para obtener logs (GET) - Protegida con verifyToken
+router.get('/logs', verifyToken, async (req, res) => {
   try {
     const logsSnapshot = await db.collection('logs').get();
 
