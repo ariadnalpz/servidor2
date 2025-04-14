@@ -2,44 +2,54 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const speakeasy = require('speakeasy');
-const { saveLog } = require('../models/log');
 const db = require('../config/firebase');
-const verifyToken = require('../middleware/auth'); // Importar el middleware
 require('dotenv').config();
 
 const router = express.Router();
 
-// API getInfo (GET) - Protegida con verifyToken
-router.get('/getInfo', verifyToken, async (req, res) => {
+// API getInfo (GET) - Sin rateLimit
+router.get('/getInfo', async (req, res) => {
   try {
-    await saveLog('info', 'Solicitud a getInfo', { nodeVersion: process.version });
+    const email = req.query.email; // Obtener el email desde la query (por ejemplo: /getInfo?email=server2@gmail.com)
+
+    let userData = null;
+    if (email) {
+      const userSnapshot = await db.collection('users').where('email', '==', email).get();
+      if (!userSnapshot.empty) {
+        const user = userSnapshot.docs[0].data();
+        userData = {
+          username: user.username,
+          grado: user.grado,
+          grupo: user.grupo,
+        };
+      }
+    }
+
     res.json({
       nodeVersion: process.version,
       student: {
         name: 'Ariadna Vanessa López Gómez',
         group: 'IDGS11',
       },
+      user: userData, // Puede ser null si no se proporciona email o no se encuentra el usuario
     });
   } catch (error) {
     console.error('Error en getInfo:', error);
-    await saveLog('error', 'Error en getInfo', { error: error.message });
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
-// API Register (POST) - Sin middleware
+// API Register (POST)
 router.post('/register', async (req, res) => {
   const { email, username, password, grado, grupo } = req.body;
 
   if (!email || !username || !password || !grado || !grupo || !/\S+@\S+\.\S+/.test(email)) {
-    await saveLog('error', 'Registro fallido', { reason: 'Datos inválidos' });
     return res.status(400).json({ error: 'Datos inválidos' });
   }
 
   try {
     const userSnapshot = await db.collection('users').where('email', '==', email).get();
     if (!userSnapshot.empty) {
-      await saveLog('error', 'Registro fallido', { reason: 'Usuario ya existe' });
       return res.status(400).json({ error: 'El usuario ya existe' });
     }
 
@@ -58,7 +68,6 @@ router.post('/register', async (req, res) => {
       otpSecret: secret.base32,
     });
 
-    await saveLog('info', 'Usuario registrado', { email, username });
     res.status(201).json({
       message: 'Usuario registrado',
       secret: secret.base32,
@@ -66,46 +75,40 @@ router.post('/register', async (req, res) => {
     });
   } catch (error) {
     console.error('Error en register:', error);
-    await saveLog('error', 'Error al registrar usuario', { error: error.message });
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
-// API Login (POST) - Sin middleware
+// API Login (POST)
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
   try {
     const userSnapshot = await db.collection('users').where('email', '==', email).get();
     if (userSnapshot.empty) {
-      await saveLog('error', 'Login fallido', { reason: 'Usuario no encontrado' });
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
     const user = userSnapshot.docs[0].data();
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
-      await saveLog('error', 'Login fallido', { reason: 'Contraseña incorrecta' });
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
-    await saveLog('info', 'Credenciales verificadas, esperando OTP', { email });
     res.json({ message: 'Ingresa el código OTP de Google Authenticator' });
   } catch (error) {
     console.error('Error en login:', error);
-    await saveLog('error', 'Error al procesar login', { error: error.message });
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
-// Verificar OTP y generar JWT - Sin middleware
+// Verificar OTP y generar JWT
 router.post('/verify-otp', async (req, res) => {
   const { email, otp } = req.body;
 
   try {
     const userSnapshot = await db.collection('users').where('email', '==', email).get();
     if (userSnapshot.empty) {
-      await saveLog('error', 'Verificación OTP fallida', { reason: 'Usuario no encontrado' });
       return res.status(401).json({ error: 'Usuario no encontrado' });
     }
 
@@ -120,58 +123,49 @@ router.post('/verify-otp', async (req, res) => {
     });
 
     if (!verified) {
-      await saveLog('error', 'Verificación OTP fallida', { email });
       return res.status(401).json({ error: 'Código OTP inválido' });
     }
 
     const token = jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    await saveLog('info', 'Login exitoso', { email });
     res.json({ token });
   } catch (error) {
     console.error('Error en verify-otp:', error);
-    await saveLog('error', 'Error al verificar OTP', { error: error.message });
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
-// Ruta para iniciar la recuperación de contraseña (POST) - Sin middleware
+// Ruta para iniciar la recuperación de contraseña (POST)
 router.post('/recover-password', async (req, res) => {
   const { email } = req.body;
 
   if (!email || !/\S+@\S+\.\S+/.test(email)) {
-    await saveLog('error', 'Recuperación de contraseña fallida', { reason: 'Correo inválido' });
     return res.status(400).json({ error: 'Correo inválido' });
   }
 
   try {
     const userSnapshot = await db.collection('users').where('email', '==', email).get();
     if (userSnapshot.empty) {
-      await saveLog('error', 'Recuperación de contraseña fallida', { reason: 'Usuario no encontrado' });
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    await saveLog('info', 'Solicitud de recuperación de contraseña', { email });
     res.json({ message: 'Ingresa el código OTP de Google Authenticator para continuar' });
   } catch (error) {
     console.error('Error en recover-password:', error);
-    await saveLog('error', 'Error al procesar recuperación de contraseña', { error: error.message });
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
-// Ruta para restablecer la contraseña (POST) - Sin middleware
+// Ruta para restablecer la contraseña (POST)
 router.post('/reset-password', async (req, res) => {
   const { email, otp, newPassword } = req.body;
 
   if (!email || !otp || !newPassword) {
-    await saveLog('error', 'Restablecimiento de contraseña fallido', { reason: 'Datos incompletos' });
     return res.status(400).json({ error: 'Datos incompletos' });
   }
 
   try {
     const userSnapshot = await db.collection('users').where('email', '==', email).get();
     if (userSnapshot.empty) {
-      await saveLog('error', 'Restablecimiento de contraseña fallido', { reason: 'Usuario no encontrado' });
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
@@ -187,7 +181,6 @@ router.post('/reset-password', async (req, res) => {
     });
 
     if (!verified) {
-      await saveLog('error', 'Restablecimiento de contraseña fallido', { email, reason: 'Código OTP inválido' });
       return res.status(401).json({ error: 'Código OTP inválido' });
     }
 
@@ -196,17 +189,15 @@ router.post('/reset-password', async (req, res) => {
       password: hashedPassword,
     });
 
-    await saveLog('info', 'Contraseña restablecida con éxito', { email });
     res.json({ message: 'Contraseña restablecida con éxito' });
   } catch (error) {
     console.error('Error en reset-password:', error);
-    await saveLog('error', 'Error al restablecer contraseña', { error: error.message });
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
-// Ruta para obtener logs (GET) - Protegida con verifyToken
-router.get('/logs', verifyToken, async (req, res) => {
+// Ruta para obtener logs (GET)
+router.get('/logs', async (req, res) => {
   try {
     const logsSnapshot = await db.collection('logs').get();
 
@@ -219,11 +210,9 @@ router.get('/logs', verifyToken, async (req, res) => {
       else if (server === 'Servidor 2') server2Logs[level]++;
     });
 
-    await saveLog('info', 'Logs consultados', { server: 'Servidor 2' });
     res.json({ server1: server1Logs, server2: server2Logs });
   } catch (error) {
     console.error('Error al obtener logs:', error);
-    await saveLog('error', 'Error al obtener logs', { error: error.message });
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
