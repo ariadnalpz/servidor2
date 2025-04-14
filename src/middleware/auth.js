@@ -3,22 +3,20 @@ const { saveLog } = require('../models/log');
 require('dotenv').config();
 
 const verifyToken = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
+  const token = req.headers.authorization?.split(' ')[1]; // Extrae el token del header "Bearer <token>"
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    await saveLog('error', 'Acceso no autorizado', { reason: 'Token no proporcionado' });
-    return res.status(401).json({ error: 'Acceso no autorizado: Token no proporcionado' });
+  if (!token) {
+    await saveLog('error', 'Acceso denegado', { reason: 'Token no proporcionado' });
+    return res.status(401).json({ error: 'Acceso denegado: Token no proporcionado' });
   }
-
-  const token = authHeader.split(' ')[1];
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
+    req.user = decoded; // Guarda los datos decodificados del token en req.user
     next();
   } catch (error) {
-    await saveLog('error', 'Acceso no autorizado', { reason: 'Token inválido', error: error.message });
-    return res.status(401).json({ error: 'Acceso no autorizado: Token inválido' });
+    await saveLog('error', 'Token inválido', { error: error.message });
+    return res.status(401).json({ error: 'Acceso denegado: Token inválido' });
   }
 };
 
